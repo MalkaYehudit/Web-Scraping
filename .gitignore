@@ -1,0 +1,15 @@
+# created by virtualenv automatically
+# להתעלם מכל הקבצים פרט לתיקיית ה־virtual environment והקבצים שלך
+
+# להתעלם מהתיקייה של סביבת הפייתון (אם היא בשם venv או env)
+venv/
+env/
+
+# להתעלם מקבצים זמניים
+*.pyc
+__pycache__/
+
+# לא להתעלם מקבצים אחרים
+!*/
+!*.py
+!.gitignor
