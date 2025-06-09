@@ -1,6 +1,6 @@
 import requests
 from models.product import Product
-from scrapers.base_scraper import StoreScraper
+from base_scraper import StoreScraper
 
 class HaziHinamScraper(StoreScraper):
     def __init__(self):
