@@ -1,19 +1,19 @@
+import requests
+from bs4 import BeautifulSoup
+from models.product import Product
+
 from scrapers.shukcity_scraper import ShukCityScraper
-# from scrapers.haziHinam_scraper import HaziHinamScraper
-#
-# if __name__ == "__main__":
-#     scraper = HaziHinamScraper()
-#     results = scraper.scrape_product("לחם פרוס")
-#     print(f"התקבלו {len(results)} מוצרים")
-#     for product in results:
-#         print(product)
-#
-
-from scrapers.haziHinam_scraper import HaziHinamScraper
-
 if __name__ == "__main__":
-    scraper = HaziHinamScraper()
-    results = scraper.scrape_product("חלב")
+    scraper = ShukCityScraper()
+    results = scraper.scrape_product("מים")
     print(f"התקבלו {len(results)} מוצרים")
     for product in results:
         print(product)
+
+# from scrapers.rami_levy_scraper import RamiLevyScraper
+# if __name__ == "__main__":
+#     scraper = RamiLevyScraper()
+#     results = scraper.scrape_product("מים")
+#     print(f"התקבלו {len(results)} מוצרים")
+#     for product in results:
+#         print(product)
