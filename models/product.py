@@ -184,6 +184,7 @@ class Product:
     def __init__(self, name, price, store, quantity=None, brand=None):
         self.name = name
         self.price = price
+        # TODO: You can create class "Store" with name and URL get an instance here (instead of string)
         self.store = store
         self.quantity = quantity
         self.brand = brand
@@ -193,6 +194,7 @@ class Product:
         self.display_info = None
 
     def __str__(self):
+        # TODO: Please document in English
         """הצגת המוצר עם מחיר יחסי"""
         # בניית מחרוזת בסיסית
         result = f"{self.store}: {self.name}"

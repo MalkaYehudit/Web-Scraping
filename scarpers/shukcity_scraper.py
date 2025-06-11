@@ -129,6 +129,7 @@ class ShukCityScraper(StoreScraper):
 
         return all_products
 
+    #TODO: if all the function below compatible with all food-stores you can pass it to base class
     def _create_product_with_unit_price(self, name, price, quantity, brand):
         """יצירת מוצר עם חישוב מחיר יחסי"""
         # חישוב מחיר יחסי
@@ -235,6 +236,7 @@ class ShukCityScraper(StoreScraper):
 
         return None
 
+    # TODO: Add @staticmethod decorator and remov "self"
     def _normalize_unit_for_calculation(self, unit):
         """נירמול יחידות לחישוב מחיר יחסי"""
         unit_mapping = {
@@ -277,6 +279,7 @@ class ShukCityScraper(StoreScraper):
 
         return "לא ידוע"
 
+    # TODO: Add @staticmethod decorator and remov "self"
     def _extract_price(self, item):
         """חילוץ מחיר המוצר"""
         try:
@@ -395,10 +398,12 @@ class ShukCityScraper(StoreScraper):
 
         return None
 
+    # TODO: Add @staticmethod decorator and remov "self"
     def _extract_brand_from_name(self, name):
         """חילוץ יצרן מתוך שם המוצר"""
         # רשימת יצרנים ידועים
         known_brands = [
+            # TODO: fix "קוקה קולא" to "קוקה קולה"
             "אוסם", "תנובה", "יטבתה", "טעמן", "קוקה קולא", "פפסי",
             "נסטלה", "בישולי", "שטראוס", "עלית", "שופרסל", "סוגת",
             "מגדים", "אסם", "ברמן", "חרמון", "גלידות שטראוס", "דנונה",
@@ -453,6 +458,7 @@ class ShukCityScraper(StoreScraper):
 
         return None
 
+    # TODO: Add @staticmethod decorator and remov "self"
     def _normalize_unit(self, unit):
         """נירמול יחידות מידה"""
         if not unit:

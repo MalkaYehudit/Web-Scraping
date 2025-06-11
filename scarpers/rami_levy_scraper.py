@@ -26,6 +26,8 @@ class RamiLeviScraper(StoreScraper):
         response.raise_for_status()
 
         data = response.json()
+        # TODO: End the function load_data here
+
         products = []
         for item in data.get('data', []):
             try:
