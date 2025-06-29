@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "food_scraper_project"
+version = "0.1.0"
+description = "אוטומציה עם Selenium ו-BeautifulSoup"
+authors = ["Malka Shaish <mys04052004@gmail.com>"]
+readme = "README.md"
+package-mode = false
+
+
+[tool.poetry.dependencies]
+python = "^3.10"
+selenium = "^4.21.0"
+beautifulsoup4 = "^4.12.3"
+webdriver-manager = "^4.0.2"
+requests = "^2.32.3"
+undetected-chromedriver = "^3.5.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

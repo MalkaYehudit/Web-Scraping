@@ -1,4 +1,4 @@
-from scrapers.shufersal_scraper import ShufersalScraper
+from scarpers.shufersal_scraper import ShufersalScraper
 # from scrapers.rami_levy_scraper import RamiLevyScraper
 
 def get_all_prices(product_name):
