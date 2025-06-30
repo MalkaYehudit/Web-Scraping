@@ -1,13 +1,16 @@
 import requests
 from bs4 import BeautifulSoup
 from models.product import Product
-from scrapers.base_scraper import StoreScraper
+from scarpers.base_scraper import StoreScraper
+from models.quantity_extractor import QuantityExtractor
 import re
+import time
 
 
 class ShukCityScraper(StoreScraper):
     def __init__(self):
         super().__init__("https://www.shukcity.co.il")
+        self.quantity_extractor = QuantityExtractor()
 
     def scrape_product(self, product_name):
         url = f"{self.base_url}/v2/retailers/1254/branches/1639/products"
@@ -40,19 +43,16 @@ class ShukCityScraper(StoreScraper):
             print("מבצע ביקור ראשון לאתר...")
             home_response = session.get("https://www.shukcity.co.il/")
             print(f"ביקור בעמוד הבית: {home_response.status_code}")
-
-            # המתנה קטנה
-            import time
             time.sleep(2)
-
         except Exception as e:
             print(f"שגיאה בביקור בעמוד הבית: {e}")
 
         all_products = []
-        size = 50
+        size = 10  # שינוי לשליפת 10 תוצאות בלבד
         start = 0
+        max_products = 10  # הגבלה על מספר המוצרים הכולל
 
-        while True:
+        while len(all_products) < max_products:
             params = {
                 "appId": "4",
                 "filters": '{"must":{"exists":["family.id","family.categoriesPaths.id","branch.regularPrice"],"term":{"branch.isActive":true,"branch.isVisible":true}},"mustNot":{"term":{"branch.regularPrice":0,"branch.isOutOfStock":true}}}',
@@ -64,12 +64,8 @@ class ShukCityScraper(StoreScraper):
 
             try:
                 print(f"שולח בקשה עם start={start}, size={size}")
-
-                # שימוש ב-session במקום requests ישירות
                 response = session.get(url, params=params, timeout=10)
                 print(f"סטטוס קוד: {response.status_code}")
-
-                # הדפסת headers של התגובה לדיבוג
                 print(f"Content-Type: {response.headers.get('content-type', 'לא ידוע')}")
 
                 response.raise_for_status()
@@ -84,21 +80,26 @@ class ShukCityScraper(StoreScraper):
                     break
 
                 for i, item in enumerate(items):
+                    # בדיקה אם הגענו למספר המוצרים המבוקש
+                    if len(all_products) >= max_products:
+                        print(f"הגענו ל-{max_products} מוצרים, מפסיק")
+                        break
+
                     try:
-                        # חילוץ שם המוצר
+                        # חילוץ נתוני המוצר
                         name = self._extract_product_name(item)
-
-                        # חילוץ מחיר
                         price = self._extract_price(item)
-
-                        # חילוץ כמות
-                        quantity = self._extract_quantity(item)
-
-                        # חילוץ יצרן
                         brand = self._extract_brand(item)
 
-                        # יצירת מוצר עם חישוב מחיר יחסי
-                        product = self._create_product_with_unit_price(name, price, quantity, brand)
+                        # חילוץ כמות באמצעות QuantityExtractor
+                        quantity = self._extract_quantity_with_extractor(item)
+
+                        # יצירת מוצר
+                        product = Product(name, price, "שוק העיר", quantity, brand)
+
+                        # חישוב מחיר יחסי באמצעות QuantityExtractor
+                        self.quantity_extractor.calculate_unit_price(product)
+
                         all_products.append(product)
 
                     except Exception as e:
@@ -106,10 +107,12 @@ class ShukCityScraper(StoreScraper):
                         print(f"נתוני המוצר: {item}")
                         continue
 
-                start += size
+                # בדיקה אם הגענו למספר המוצרים המבוקש
+                if len(all_products) >= max_products:
+                    print(f"הושלמה שליפת {max_products} מוצרים")
+                    break
 
-                # הפסקה ארוכה יותר בין בקשות
-                import time
+                start += size
                 time.sleep(1.5)
 
             except requests.exceptions.HTTPError as e:
@@ -129,140 +132,64 @@ class ShukCityScraper(StoreScraper):
 
         return all_products
 
-    def _create_product_with_unit_price(self, name, price, quantity, brand):
-        """יצירת מוצר עם חישוב מחיר יחסי"""
-        # חישוב מחיר יחסי
-        unit_price_info = self._calculate_unit_price(price, quantity)
+    def _extract_quantity_with_extractor(self, item):
+        """חילוץ כמות באמצעות QuantityExtractor"""
+        # חילוץ נתונים מהשדות
+        weight = item.get("weight")
+        unit_of_measure_data = item.get("unitOfMeasure", {}).get("names", {}).get("1")
+        number_of_items = item.get("numberOfItems")
+        size_field = item.get("size")
 
-        # יצירת מוצר בסיסי
-        product = Product(name, price, "שוק העיר", quantity, brand)
+        # ניסיון ראשון - שימוש בשדות הישירים
+        quantity = self.quantity_extractor.extract_quantity_from_fields(
+            weight=weight,
+            unit_of_measure=unit_of_measure_data,
+            quantity_field=number_of_items,
+            size_field=size_field
+        )
 
-        # הוספת מידע על מחיר יחסי
-        if unit_price_info:
-            product.unit_price = unit_price_info["price"]
-            product.unit_type = unit_price_info["unit"]
-            product.display_info = unit_price_info["display"]
+        if quantity:
+            return quantity
 
-        return product
+        # ניסיון שני - חילוץ משם המוצר
+        name = self._extract_product_name(item)
+        quantity_from_name = self.quantity_extractor.extract_quantity_from_name(name)
 
-    def _calculate_unit_price(self, price, quantity_str):
-        """חישוב מחיר ליחידת מידה סטנדרטית"""
-        if not quantity_str or price <= 0:
-            return None
+        if quantity_from_name:
+            return quantity_from_name
 
-        # פרסוני כמות ויחידה
-        quantity_info = self._parse_quantity(quantity_str)
-        if not quantity_info:
-            return None
+        # ניסיון שלישי - בדיקות נוספות ספציפיות לשוק העיר
+        return self._extract_quantity_fallback(item)
 
-        amount = quantity_info["amount"]
-        unit = quantity_info["unit"]
-
-        # הגדרת יחידות סטנדרטיות
-        unit_standards = {
-            # משקל
-            "גרם": {"standard": 100, "display": "100 גרם"},
-            "קילוגרם": {"standard": 1, "display": "1 ק\"ג"},
-            "מיליגרם": {"standard": 100000, "display": "100 גרם"},  # המרה ל-100 גרם
-
-            # נפח
-            "מ\"ל": {"standard": 100, "display": "100 מ\"ל"},
-            "ליטר": {"standard": 1, "display": "1 ליטר"},
-
-            # יחידות
-            "יחידות": {"standard": 1, "display": "יחידה"},
-        }
-
-        if unit not in unit_standards:
-            return None
-
-        standard = unit_standards[unit]
-
-        # חישוב מחיר יחסי
-        unit_price = (price / amount) * standard["standard"]
-
-        return {
-            "price": round(unit_price, 2),
-            "unit": standard["display"],
-            "display": f"{round(unit_price, 2)} ש\"ח ל{standard['display']}"
-        }
-
-    def _parse_quantity(self, quantity_str):
-        """פרסונג כמות ויחידה מתוך מחרוזת"""
-        if not quantity_str:
-            return None
-
-        # דפוסי חיפוש לכמות ויחידה
-        patterns = [
-            # דפוסים רגילים
-            r'(\d+(?:\.\d+)?)\s*(ק"?ג|קילוגרם|גר\'?|גרם|מ"?ל|ליטר|מיליגרם|מ"?ג)',
-            r'(\d+)\s*(יחידות?|יח\'?)',
-
-            # דפוסי מארז (4×1 ליטר)
-            r'(\d+)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*(ק"?ג|קילוגרם|גר\'?|גרם|מ"?ל|ליטר)',
+    def _extract_quantity_fallback(self, item):
+        """פונקציה גיבוי לחילוץ כמות - עבור מקרים מיוחדים"""
+        # בדיקות נוספות ספציפיות לשוק העיר
+        quantity_sources = [
+            item.get("original", {}).get("weight"),
+            item.get("original", {}).get("size"),
+            item.get("volume"),
+            item.get("original", {}).get("volume")
         ]
 
-        for pattern in patterns:
-            match = re.search(pattern, quantity_str, re.IGNORECASE)
-            if match:
-                groups = match.groups()
+        for quantity in quantity_sources:
+            if quantity and str(quantity).strip():
+                return str(quantity).strip()
 
-                if len(groups) == 3:  # מארז
-                    count = float(groups[0])
-                    unit_amount = float(groups[1])
-                    unit = self._normalize_unit_for_calculation(groups[2])
-                    total_amount = count * unit_amount
-                    return {"amount": total_amount, "unit": unit}
-                else:  # רגיל
-                    amount = float(groups[0])
-                    unit = self._normalize_unit_for_calculation(groups[1])
-                    return {"amount": amount, "unit": unit}
+        # בדיקה לmultipack
+        number_of_items = item.get("numberOfItems")
+        weight = item.get("weight")
+        unit_of_measure = item.get("unitOfMeasure", {}).get("names", {}).get("1")
 
-        # ניסיון להבין מהשם אם לא נמצא דפוס
-        if "ליטר" in quantity_str.lower():
-            match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-            if match:
-                return {"amount": float(match.group(1)), "unit": "ליטר"}
-
-        if any(word in quantity_str.lower() for word in ["גרם", "ק\"ג", "קילו"]):
-            match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-            if match:
-                amount = float(match.group(1))
-                if "ק" in quantity_str.lower() or "קילו" in quantity_str.lower():
-                    return {"amount": amount, "unit": "קילוגרם"}
-                else:
-                    return {"amount": amount, "unit": "גרם"}
+        if number_of_items and number_of_items > 1 and weight and unit_of_measure:
+            normalized_unit = self.quantity_extractor.normalize_unit_type(unit_of_measure)
+            return f"{number_of_items} יחידות של {weight} {normalized_unit}"
 
         return None
 
-    def _normalize_unit_for_calculation(self, unit):
-        """נירמול יחידות לחישוב מחיר יחסי"""
-        unit_mapping = {
-            'ק"ג': 'קילוגרם',
-            'קילו': 'קילוגרם',
-            'קילוגרm': 'קילוגרם',
-            'גר\'': 'גרם',
-            'גרם': 'גרם',
-            'ג\'': 'גרם',
-            'מ"ל': 'מ"ל',
-            'מיליליטר': 'מ"ל',
-            'ל\'': 'ליטר',
-            'ליטר': 'ליטר',
-            'יח\'': 'יחידות',
-            'יחידה': 'יחידות',
-            'יחידות': 'יחידות',
-            'מ"ג': 'מיליגרם',
-            'מג': 'מיליגרם',
-            'מיליגרם': 'מיליגרם',
-        }
-
-        return unit_mapping.get(unit.lower(), unit)
-
     def _extract_product_name(self, item):
         """חילוץ שם המוצר"""
-        # מנסים מספר מקורות לשם המוצר
         name_sources = [
-            item.get("localName"),  # שם מקומי - בדרך כלל הכי מדויק
+            item.get("localName"),
             item.get("names", {}).get("1", {}).get("long"),
             item.get("names", {}).get("1", {}).get("short"),
             item.get("original", {}).get("names", {}).get("1", {}).get("long"),
@@ -286,7 +213,6 @@ class ShukCityScraper(StoreScraper):
         except (ValueError, TypeError):
             pass
 
-        # נסיון נוסף למקרה שהמחיר נמצא במקום אחר
         try:
             price = item.get("price")
             if price is not None:
@@ -296,80 +222,25 @@ class ShukCityScraper(StoreScraper):
 
         return 0.0
 
-    def _extract_quantity(self, item):
-        """חילוץ כמות המוצר - גרסה משופרת"""
-        # קודם כל נחפש בשדות הישירים
-        quantity_sources = [
-            item.get("weight"),
-            item.get("unitOfMeasure", {}).get("names", {}).get("1"),  # יחידת מידה
-            item.get("numberOfItems"),  # מספר יחידות
-            item.get("original", {}).get("weight"),
-            item.get("size"),
-            item.get("original", {}).get("size"),
-            item.get("volume"),
-            item.get("original", {}).get("volume")
-        ]
-
-        # בדיקה מיוחדת עבור weight ו-unitOfMeasure
-        weight = item.get("weight")
-        unit_of_measure = item.get("unitOfMeasure", {}).get("names", {}).get("1")
-
-        if weight and unit_of_measure:
-            return f"{weight} {self._normalize_unit(unit_of_measure)}"
-
-        # בדיקה לmultipack (כמו 4×1 ליטר)
-        number_of_items = item.get("numberOfItems")
-        if number_of_items and number_of_items > 1 and weight and unit_of_measure:
-            return f"{number_of_items}×{weight} {self._normalize_unit(unit_of_measure)}"
-
-        # בדיקה בשדות אחרים
-        for quantity in quantity_sources:
-            if quantity and str(quantity).strip():
-                if quantity not in [weight, unit_of_measure, number_of_items]:  # למנוע כפל
-                    return str(quantity).strip()
-
-        # אם לא נמצאה כמות ישירה, מנסים לחלץ מהשם
-        name = self._extract_product_name(item)
-        extracted_quantity = self._extract_quantity_from_name(name)
-        if extracted_quantity:
-            return extracted_quantity
-
-        # מנסים לחלץ מכל השמות הזמינים
-        names_data = item.get("names", {})
-        for lang_id, name_data in names_data.items():
-            if isinstance(name_data, dict):
-                for name_type in ["long", "short"]:
-                    if name_type in name_data and name_data[name_type]:
-                        extracted = self._extract_quantity_from_name(name_data[name_type])
-                        if extracted:
-                            return extracted
-
-        return None
-
     def _extract_brand(self, item):
-        """חילוץ שם היצרן - גרסה משופרת"""
-        # מנסים מספר מקורות ליצרן
+        """חילוץ שם היצרן"""
         try:
-            # בדיקה הדרגתית בmulti-level dictionaries
             brand_data = item.get("brand", {})
             if isinstance(brand_data, dict):
-                # נסיון לגשת לשם היצרן
                 names_data = brand_data.get("names", {})
                 if isinstance(names_data, dict):
-                    # מחפשים בשפה העברית (1) או באנגלית (2)
                     for lang_id in ["1", "2"]:
                         if lang_id in names_data:
                             brand_name = names_data[lang_id]
                             if isinstance(brand_name, str) and brand_name.strip():
                                 return brand_name.strip()
 
-                # אם לא נמצא ב-names, מנסים ישירות ב-brand
                 if "name" in brand_data and brand_data["name"]:
                     brand_name = brand_data["name"]
                     if isinstance(brand_name, str) and brand_name.strip():
                         return brand_name.strip()
 
-        except Exception as e:
+        except Exception:
             pass
 
         # מקורות נוספים ליצרן
@@ -384,100 +255,32 @@ class ShukCityScraper(StoreScraper):
 
         for brand in additional_brand_sources:
             if brand and isinstance(brand, str) and brand.strip():
-                brand_name = brand.strip()
-                return brand_name
-
-        # אם לא נמצא יצרן ישיר, מנסים לחלץ מהשם
-        name = self._extract_product_name(item)
-        extracted_brand = self._extract_brand_from_name(name)
-        if extracted_brand:
-            return extracted_brand
-
-        return None
-
-    def _extract_brand_from_name(self, name):
-        """חילוץ יצרן מתוך שם המוצר"""
-        # רשימת יצרנים ידועים
-        known_brands = [
-            "אוסם", "תנובה", "יטבתה", "טעמן", "קוקה קולא", "פפסי",
-            "נסטלה", "בישולי", "שטראוס", "עלית", "שופרסל", "סוגת",
-            "מגדים", "אסם", "ברמן", "חרמון", "גלידות שטראוס", "דנונה",
-            "מאיר בגל", "מעדן", "ויסוצקי", "עלי", "מילקי", "סימפליסימו",
-            "בן עמי", "זוגלובק", "פיצה האט", "דומינו", "תל אביב", "מוצר ישראלי",
-            "קוקה קולה", "coca cola", "cocacola", "ספרינג", "פריגת", "ג'אמפ",
-            "רפאל'ס", "נובי", "פרינוק", "דניאלה", "אקטימל", "יופלה", "פרוט & ווג'",
-            "פריטוב", "מטרנה", "בייבי ביס", "תנובה אלטרנטיב", "גמדים", "דנונה פרו"
-        ]
-
-        name_lower = name.lower()
-        for brand in known_brands:
-            if brand.lower() in name_lower:
-                return brand
+                return brand.strip()
+        #
+        # # חילוץ יצרן מהשם באמצעות רשימה מובנית
+        # name = self._extract_product_name(item)
+        # extracted_brand = self._extract_brand_from_name(name)
+        # if extracted_brand:
+        #     return extracted_brand
 
         return None
 
-    def _extract_quantity_from_name(self, name):
-        """חילוץ כמות מתוך שם המוצר - פונקציה משופרת"""
-        import re
-
-        patterns = [
-            r'(\d+(?:\.\d+)?)\s*(ק"?ג|קילו|קילוגרם)',  # קילוגרם
-            r'(\d+(?:\.\d+)?)\s*(גר\'?|גרם)',  # גרם
-            r'(\d+(?:\.\d+)?)\s*(מ"?ל|מיליליטר)',  # מיליליטר
-            r'(\d+(?:\.\d+)?)\s*(ליטר|ל\')',  # ליטר
-            r'(\d+)\s*(יחידות?|יח\'?)',  # יחידות
-            r'(\d+(?:\.\d+)?)\s*(מ"?ג|מיליגרם)',  # מיליגרם
-            r'(\d+(?:\.\d+)?)\s*ג\'',  # גרם בקיצור
-            r'(\d+)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*(מ"?ל|ליטר|גר\'?|גרם|ק"?ג)',  # פורמט כמו 4×1 ליטר
-            r'מארז\s*(\d+)\s*(יחידות?)',  # מארז X יחידות
-            r'(\d+)\s*חתיכות',  # חתיכות
-            r'(\d+)\s*עוגיות',  # עוגיות
-            r'(\d+)\s*כדורים',  # כדורים
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, name, re.IGNORECASE)
-            if match:
-                groups = match.groups()
-
-                if len(groups) == 3 and any(char in pattern.lower() for char in ['×', 'x']):
-                    # פורמט של כמות × יחידה
-                    count = groups[0]
-                    amount = groups[1]
-                    unit = groups[2]
-                    return f"{count}×{amount} {self._normalize_unit(unit)}"
-                else:
-                    amount = groups[0]
-                    unit = groups[1] if len(groups) > 1 else "יחידות"
-                    return f"{amount} {self._normalize_unit(unit)}"
-
-        return None
-
-    def _normalize_unit(self, unit):
-        """נירמול יחידות מידה"""
-        if not unit:
-            return "יחידות"
-
-        unit_mapping = {
-            'ק"ג': 'קילוגרם',
-            'קילו': 'קילוגרם',
-            'קילוגרם': 'קילוגרם',
-            'גר\'': 'גרם',
-            'גרם': 'גרם',
-            'מ"ל': 'מ"ל',
-            'מיליליטר': 'מ"ל',
-            'ל\'': 'ליטר',
-            'ליטר': 'ליטר',
-            'יח\'': 'יחידות',
-            'יחידה': 'יחידות',
-            'יחידות': 'יחידות',
-            'מ"ג': 'מיליגרם',
-            'מג': 'מיליגרם',
-            'מיליגרם': 'מיליגרם',
-            'ג\'': 'גרם',
-            'חתיכות': 'יחידות',
-            'עוגיות': 'יחידות',
-            'כדורים': 'יחידות'
-        }
-
-        return unit_mapping.get(unit.lower(), unit)
+    # def _extract_brand_from_name(self, name):
+    #     """חילוץ יצרן מתוך שם המוצר"""
+    #     known_brands = [
+    #         "אוסם", "תנובה", "יטבתה", "טעמן", "קוקה קולה", "פפסי",
+    #         "נסטלה", "בישולי", "שטראוס", "עלית", "שופרסל", "סוגת",
+    #         "מגדים", "אסם", "ברמן", "חרמון", "גלידות שטראוס", "דנונה",
+    #         "מאיר בגל", "מעדן", "ויסוצקי", "עלי", "מילקי", "סימפליסימו",
+    #         "בן עמי", "זוגלובק", "פיצה האט", "דומינו", "תל אביב", "מוצר ישראלי",
+    #         "coca cola", "cocacola", "ספרינג", "פריגת", "ג'אמפ",
+    #         "רפאל'ס", "נובי", "פרינוק", "דניאלה", "אקטימל", "יופלה", "פרוט & ווג'",
+    #         "פריטוב", "מטרנה", "בייבי ביס", "תנובה אלטרנטיב", "גמדים", "דנונה פרו"
+    #     ]
+    #
+    #     name_lower = name.lower()
+    #     for brand in known_brands:
+    #         if brand.lower() in name_lower:
+    #             return brand
+    #
+    #     return None
