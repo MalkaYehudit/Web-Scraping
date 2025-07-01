@@ -181,37 +181,36 @@
 #         }
 
 class Product:
-    def __init__(self, name, price, store, quantity=None, brand=None):
+    def __init__(self, name, price, store, quantity=None, brand=None,
+                 description=None, brand_id=None, weight=None, weight_unit=None):
         self.name = name
         self.price = price
         self.store = store
         self.quantity = quantity
         self.brand = brand
-        # שדות חדשים למחיר יחסי
+
+        # מידע נוסף
+        self.description = description
+        self.brand_id = brand_id
+        self.weight = weight
+        self.weight_unit = weight_unit
+
+        # שדות למחיר יחסי
         self.unit_price = None
         self.unit_type = None
         self.display_info = None
 
     def __str__(self):
         """הצגת המוצר עם מחיר יחסי"""
-        # בניית מחרוזת בסיסית
         result = f"{self.store}: {self.name}"
 
-        # הוספת יצרן אם קיים
         if self.brand:
             result += f" ({self.brand})"
-
-        # הוספת כמות אם קיימת
         if self.quantity:
             result += f" [{self.quantity}]"
-
-        # הוספת מחיר
         result += f" - {self.price} ש\"ח"
-
-        # הוספת מחיר יחסי אם קיים
         if self.display_info:
             result += f" ({self.display_info})"
-
         return result
 
     def get_unit_price_value(self):
@@ -221,3 +220,22 @@ class Product:
     def get_formatted_unit_price(self):
         """החזרת המחיר היחסי מעוצב"""
         return self.display_info if self.display_info else "לא זמין"
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "price": self.price,
+            "store": self.store,
+            "quantity": self.quantity,
+            "brand": self.brand,
+            "description": self.description,
+            "brand_id": self.brand_id,
+            "weight": self.weight,
+            "weight_unit": self.weight_unit,
+            "unit_price": self.unit_price,
+            "unit_type": self.unit_type,
+            "display_info": self.display_info
+        }
+
+    def __repr__(self):
+        return f"<Product {self.name} from {self.store} at {self.price}₪>"
