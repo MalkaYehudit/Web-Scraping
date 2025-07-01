@@ -5,6 +5,8 @@
 venv/
 env/
 Lib/
+Scripts/
+
 .idea
 
 # להתעלם מקבצים זמניים
